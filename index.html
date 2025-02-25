@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notion Alternative</title>
+    <!-- CryptoJSとDexie.jsをCDNから読み込み -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dexie/3.2.2/dexie.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #login, #app { max-width: 800px; margin: 0 auto; }
+        input, button { margin: 10px 0; padding: 5px; width: 100%; }
+        #editor { border: 1px solid #ccc; padding: 10px; min-height: 200px; }
+        .toolbar { margin: 10px 0; }
+        .toolbar button { padding: 5px 10px; margin-right: 5px; }
+        #searchResults { margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <!-- ログイン画面 -->
+    <div id="login">
+        <h1>ログイン</h1>
+        <input type="text" id="username" placeholder="ユーザ名">
+        <input type="password" id="password" placeholder="パスワード">
+        <button id="loginBtn">ログイン</button>
+    </div>
+
+    <!-- アプリ画面 -->
+    <div id="app" style="display: none;">
+        <h1>Notion Alternative</h1>
+        <div class="toolbar">
+            <button onclick="addList()">リスト追加</button>
+            <button onclick="addTable()">テーブル追加</button>
+            <button onclick="document.getElementById('imageInput').click()">画像追加</button>
+            <input type="file" id="imageInput" style="display: none;" accept="image/*">
+            <button onclick="addLink()">リンク追加</button>
+            <input type="text" id="tagInput" placeholder="タグを入力" style="width: 150px;">
+            <button onclick="addTag()">タグ追加</button>
+            <input type="text" id="searchInput" placeholder="検索" style="width: 150px;">
+            <button onclick="searchData()">検索</button>
+        </div>
+        <div id="editor" contenteditable="true" oninput="saveData()"></div>
+        <div id="searchResults"></div>
+    </div>
+
+    <script>
+        // IndexedDBの設定
+        const db = new Dexie("NotionDB");
+        db.version(1).stores({ data: "key, value, tags" });
+
+        // 固定のユーザ名とパスワード
+        const validUsername = "rooty";
+        const validPassword = "bitchuoreimolovin114";
+
+        // ログイン処理
+        document.getElementById("loginBtn").addEventListener("click", async () => {
+            const username = document.getElementById("username").value;
+            const password = document.getElementById("password").value;
+            if (username === validUsername && password === validPassword) {
+                document.getElementById("login").style.display = "none";
+                document.getElementById("app").style.display = "block";
+                await loadData(password);
+            } else {
+                alert("ユーザ名またはパスワードが間違っています");
+            }
+        });
+
+        // データの読み込み
+        async function loadData(password) {
+            const encryptedData = await db.data.get("editor");
+            if (encryptedData) {
+                const key = CryptoJS.PBKDF2(password, "randomSalt", { keySize: 256/32, iterations: 1000 });
+                const decrypted = CryptoJS.AES.decrypt(encryptedData.value, key.toString(CryptoJS.enc.Hex));
+                try {
+                    const data = decrypted.toString(CryptoJS.enc.Utf8);
+                    document.getElementById("editor").innerHTML = data;
+                } catch (e) {
+                    alert("データの復号化に失敗しました");
+                }
+            }
+        }
+
+        // データの保存
+        async function saveData() {
+            const data = document.getElementById("editor").innerHTML;
+            const password = validPassword; // 保存時は固定パスワードを使用
+            const key = CryptoJS.PBKDF2(password, "randomSalt", { keySize: 256/32, iterations: 1000 });
+            const encrypted = CryptoJS.AES.encrypt(data, key.toString(CryptoJS.enc.Hex));
+            const tags = document.getElementById("tagInput").value.split(",").map(tag => tag.trim());
+            await db.data.put({ key: "editor", value: encrypted.toString(), tags });
+        }
+
+        // リストの追加
+        function addList() {
+            const ul = document.createElement("ul");
+            ul.innerHTML = "<li>項目1</li><li>項目2</li>";
+            document.getElementById("editor").appendChild(ul);
+            saveData();
+        }
+
+        // テーブルの追加
+        function addTable() {
+            const table = document.createElement("table");
+            table.border = "1";
+            table.innerHTML = "<tr><th>ヘッダ1</th><th>ヘッダ2</th></tr><tr><td>データ1</td><td>データ2</td></tr>";
+            document.getElementById("editor").appendChild(table);
+            saveData();
+        }
+
+        // 画像の追加
+        document.getElementById("imageInput").addEventListener("change", (e) => {
+            const file = e.target.files[0];
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = document.createElement("img");
+                img.src = event.target.result;
+                img.style.maxWidth = "300px";
+                document.getElementById("editor").appendChild(img);
+                saveData();
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // リンクの追加
+        function addLink() {
+            const url = prompt("リンクのURLを入力してください:");
+            if (url) {
+                const a = document.createElement("a");
+                a.href = url;
+                a.textContent = url;
+                a.target = "_blank";
+                document.getElementById("editor").appendChild(a);
+                saveData();
+            }
+        }
+
+        // タグの追加
+        function addTag() {
+            const tag = document.getElementById("tagInput").value;
+            if (tag) {
+                saveData();
+                document.getElementById("tagInput").value = "";
+            }
+        }
+
+        // 検索機能
+        async function searchData() {
+            const query = document.getElementById("searchInput").value.toLowerCase();
+            const encryptedData = await db.data.get("editor");
+            if (encryptedData) {
+                const key = CryptoJS.PBKDF2(validPassword, "randomSalt", { keySize: 256/32, iterations: 1000 });
+                const decrypted = CryptoJS.AES.decrypt(encryptedData.value, key.toString(CryptoJS.enc.Hex));
+                const data = decrypted.toString(CryptoJS.enc.Utf8);
+                const tags = encryptedData.tags || [];
+                if (data.toLowerCase().includes(query) || tags.some(tag => tag.toLowerCase().includes(query))) {
+                    document.getElementById("searchResults").innerHTML = "一致するデータが見つかりました: " + data.substring(0, 100) + "...";
+                } else {
+                    document.getElementById("searchResults").innerHTML = "一致するデータが見つかりませんでした";
+                }
+            }
+        }
+    </script>
+</body>
+</html>
+​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​
